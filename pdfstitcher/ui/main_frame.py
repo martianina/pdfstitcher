@@ -23,14 +23,24 @@ import sys
 import pikepdf
 import traceback
 import webbrowser
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+import time
 
 
 class PDFStitcherFrame(wx.Frame):
+    observer = None #NGK class attribute
     """
     Main application frame and app.
     """
 
     def __init__(self, *args, **kw):
+        # Add the method to start monitoring the 'uploads' folder
+        self.start_upload_folder_monitor()
+        
+        self.observer = Observer()
+        self.observer.schedule(UploadsFolderHandler(self), path='./PDFStitcherWebApp/uploads', recursive=False)
+        self.observer.start()
         # ensure the parent's __init__ is called
         super(PDFStitcherFrame, self).__init__(*args, **kw)
         self.progress_win = None
@@ -325,7 +335,13 @@ class PDFStitcherFrame(wx.Frame):
 
         wx.adv.AboutBox(about_info)
 
+    def stop_observer(self):
+        if self.observer:
+            self.observer.stop()
+            self.observer.join()
+
     def on_exit(self, event):
+        self.stop_observer()
         self.Destroy()
 
     def on_output(self, event):
