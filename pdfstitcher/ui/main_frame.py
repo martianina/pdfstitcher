@@ -8,6 +8,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 import wx
+import wx.adv
 from pdfstitcher.tile_pages import PageTiler
 from pdfstitcher.layerfilter import LayerFilter
 from pdfstitcher.pagefilter import PageFilter
@@ -26,27 +27,44 @@ import webbrowser
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import time
+from pdfstitcher.ui.main_frame import PDFStitcherFrame
+
+
 
 
 class PDFStitcherFrame(wx.Frame):
-    observer = None #NGK class attribute
-    """
-    Main application frame and app.
-    """
+    observer = None  # NGK class attribute
+    
+    class MyHandler(FileSystemEventHandler):
+        def __init__(self, frame):
+            self.frame = frame
+
+        def on_created(self, event):
+            if event.is_directory:
+                return
+            self.frame.process_latest_file()
+
+        def process_latest_file(self):
+        # Add your logic to process the latest file here
+            print("Processing the latest file...")
 
     def __init__(self, *args, **kw):
-        # Add the method to start monitoring the 'uploads' folder
-        self.start_upload_folder_monitor()
-        
-        self.observer = Observer()
-        self.observer.schedule(UploadsFolderHandler(self), path='./PDFStitcherWebApp/uploads', recursive=False)
-        self.observer.start()
         # ensure the parent's __init__ is called
         super(PDFStitcherFrame, self).__init__(*args, **kw)
         self.progress_win = None
 
         # split the bottom half from the notebook top
         self.splitter = wx.SplitterWindow(self, style=wx.SP_LIVE_UPDATE)
+
+        # Add the method to start monitoring the 'uploads' folder
+        self.start_upload_folder_monitor()
+
+    def start_upload_folder_monitor(self):
+        path = './PDFStitcherWebApp/uploads'
+        event_handler = MyHandler(self)
+        self.observer = Observer()
+        self.observer.schedule(event_handler, path, recursive=False)
+        self.observer.start()
 
         # create the notebook for the various tab panes
         nb = wx.Notebook(self.splitter)
@@ -97,6 +115,7 @@ class PDFStitcherFrame(wx.Frame):
         if len(sys.argv) > 2:
             self.out_doc_path = sys.argv[2]
             self.io.output_fname_display.SetValue(sys.argv[2])
+
 
     def reset_sash_position(self):
         # Sets the output panel to occupy just 1/3 of the height
