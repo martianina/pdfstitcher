@@ -396,27 +396,34 @@ class PDFStitcherFrame(wx.Frame):
         self.load_file(pathname)
 
     def on_output(self, event):
-        # default_dir = str(Path("/Users/ninakilbride/PDFStitcherWebApp/merged"))
-        # with wx.FileDialog(
-        #    self,
-        #     _("Save output as"),
-        #     defaultDir=default_dir,
-        #     wildcard="PDF files (*.pdf)|*.pdf",
-        #     style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
-        # ) as fileDialog:
-        #     if fileDialog.ShowModal() == wx.ID_CANCEL:
-        #         return
+        # Determine the output filename based on the original filename or generate a name
+        if self.in_doc is not None:
+            # Attempt to extract the base filename from the path used to load the PDF
+            original_filename = Path(self.io.input_fname_display.GetValue()).stem
 
-        pathname = self.io.output_fname_display.GetValue()
-        # Directly use the pathname
-        self.out_doc_path = pathname
+            if not original_filename:
+                # If the base filename couldn't be extracted, generate a name based on timestamp
+                timestamp = time.strftime("%Y%m%d_%H%M%S")
+                original_filename = f"merged_{timestamp}"
+
+            merged_path = Path("/Users/ninakilbride/PDFStitcherWebApp/merged")
+            self.out_doc_path = str(merged_path / f"{original_filename}.pdf")
+
+            # Print the output path for verification
+            print("Output path:", self.out_doc_path)
+
 
     def auto_load_newest_file(self):
         uploads_folder = Path("/Users/ninakilbride/PDFStitcherWebApp/uploads")
         files = glob.glob(str(uploads_folder / "*.pdf"))
-        
+
         if files:
             newest_file = max(files, key=os.path.getctime)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            merged_path = Path("/Users/ninakilbride/PDFStitcherWebApp/merged")
+            self.out_doc_path = str(merged_path / f"merged_{timestamp}.pdf")
+
+            # Load the newest PDF file
             wx.CallAfter(self.load_file, newest_file)
 
     def load_file(self, pathname, password=""):
