@@ -7,8 +7,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import os
+import glob
 import wx
-import wx.adv
+import gettext
+_ = gettext.gettext
 from pdfstitcher.tile_pages import PageTiler
 from pdfstitcher.layerfilter import LayerFilter
 from pdfstitcher.pagefilter import PageFilter
@@ -19,34 +22,23 @@ from pdfstitcher.ui.io_tab import IOTab
 from pdfstitcher.ui.tile_tab import TileTab
 from pdfstitcher.ui.layers_tab import LayersTab
 from pathlib import Path
-import os
 import sys
 import pikepdf
 import traceback
 import webbrowser
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+from pdfstitcher.file_watcher import MyHandler
+import threading
 import time
-from pdfstitcher.ui.main_frame import PDFStitcherFrame
+from watchdog.observers import Observer
+
 
 
 
 
 class PDFStitcherFrame(wx.Frame):
-    observer = None  # NGK class attribute
-    
-    class MyHandler(FileSystemEventHandler):
-        def __init__(self, frame):
-            self.frame = frame
-
-        def on_created(self, event):
-            if event.is_directory:
-                return
-            self.frame.process_latest_file()
-
-        def process_latest_file(self):
-        # Add your logic to process the latest file here
-            print("Processing the latest file...")
+    """
+    Main application frame and app.
+    """
 
     def __init__(self, *args, **kw):
         # ensure the parent's __init__ is called
@@ -55,16 +47,6 @@ class PDFStitcherFrame(wx.Frame):
 
         # split the bottom half from the notebook top
         self.splitter = wx.SplitterWindow(self, style=wx.SP_LIVE_UPDATE)
-
-        # Add the method to start monitoring the 'uploads' folder
-        self.start_upload_folder_monitor()
-
-    def start_upload_folder_monitor(self):
-        path = './PDFStitcherWebApp/uploads'
-        event_handler = MyHandler(self)
-        self.observer = Observer()
-        self.observer.schedule(event_handler, path, recursive=False)
-        self.observer.start()
 
         # create the notebook for the various tab panes
         nb = wx.Notebook(self.splitter)
@@ -116,6 +98,10 @@ class PDFStitcherFrame(wx.Frame):
             self.out_doc_path = sys.argv[2]
             self.io.output_fname_display.SetValue(sys.argv[2])
 
+        # Start the file watcher in a separate thread
+        self.file_watcher_thread = threading.Thread(target=self.start_file_watcher)
+        self.file_watcher_thread.daemon = True
+        self.file_watcher_thread.start()
 
     def reset_sash_position(self):
         # Sets the output panel to occupy just 1/3 of the height
@@ -354,20 +340,15 @@ class PDFStitcherFrame(wx.Frame):
 
         wx.adv.AboutBox(about_info)
 
-    def stop_observer(self):
-        if self.observer:
-            self.observer.stop()
-            self.observer.join()
-
     def on_exit(self, event):
-        self.stop_observer()
         self.Destroy()
 
     def on_output(self, event):
+        default_dir = str(Path("/Users/ninakilbride/PDFStitcherWebApp/merged"))
         with wx.FileDialog(
             self,
             _("Save output as"),
-            defaultDir=Config.general["save_dir"],
+            defaultDir=default_dir,
             wildcard="PDF files (*.pdf)|*.pdf",
             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
         ) as fileDialog:
@@ -377,31 +358,13 @@ class PDFStitcherFrame(wx.Frame):
             pathname = fileDialog.GetPath()
             self.set_output_filename(pathname)
 
-    def set_output_filename(self, pathname):
-        """
-        Helper function to define output filename and directory.
-        """
-        if pathname is None:
-            return
+    def auto_load_newest_file(self):
+        uploads_folder = Path("/Users/ninakilbride/PDFStitcherWebApp/uploads")
+        files = glob.glob(str(uploads_folder / "*.pdf"))
+        if files:
+            newest_file = max(files, key=os.path.getctime)
+            self.load_file(newest_file)
 
-        pathname = pathname.strip()
-        Config.general["save_dir"] = str(Path(pathname).parent)
-
-        if pathname == self.in_doc.filename:
-            wx.MessageBox(
-                _("Can't overwrite input file, " + "please select a different file for output"),
-                "Error",
-                wx.OK | wx.ICON_ERROR,
-            )
-            self.on_output(wx.EVT_BUTTON)
-        else:
-            try:
-                self.out_doc_path = pathname
-                self.io.output_fname_display.ChangeValue(pathname)
-                print(_("File will be written to " + pathname))
-
-            except IOError:
-                wx.LogError(_("unable to write to") + pathname)
 
     def on_input_change(self, event):
         """
@@ -418,19 +381,43 @@ class PDFStitcherFrame(wx.Frame):
         self.set_output_filename(pathname)
 
     def on_open(self, event):
+        default_dir = str(Path("/Users/ninakilbride/PDFStitcherWebApp/uploads"))
         with wx.FileDialog(
             self,
             _("Select input PDF"),
-            defaultDir=Config.general["open_dir"],
+            defaultDir=default_dir,
             wildcard="PDF files (*.pdf)|*.pdf",
             style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
         ) as fileDialog:
             if fileDialog.ShowModal() == wx.ID_CANCEL:
                 return
 
-            # Proceed loading the file chosen by the user
-            pathname = fileDialog.GetPath()
-            self.load_file(pathname)
+        pathname = fileDialog.GetPath()
+        self.load_file(pathname)
+
+    def on_output(self, event):
+        # default_dir = str(Path("/Users/ninakilbride/PDFStitcherWebApp/merged"))
+        # with wx.FileDialog(
+        #    self,
+        #     _("Save output as"),
+        #     defaultDir=default_dir,
+        #     wildcard="PDF files (*.pdf)|*.pdf",
+        #     style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        # ) as fileDialog:
+        #     if fileDialog.ShowModal() == wx.ID_CANCEL:
+        #         return
+
+        pathname = self.io.output_fname_display.GetValue()
+        # Directly use the pathname
+        self.out_doc_path = pathname
+
+    def auto_load_newest_file(self):
+        uploads_folder = Path("/Users/ninakilbride/PDFStitcherWebApp/uploads")
+        files = glob.glob(str(uploads_folder / "*.pdf"))
+        
+        if files:
+            newest_file = max(files, key=os.path.getctime)
+            wx.CallAfter(self.load_file, newest_file)
 
     def load_file(self, pathname, password=""):
         """
@@ -507,6 +494,21 @@ class PDFStitcherFrame(wx.Frame):
             print(_("Please be respectful of the author and only use this tool for personal use."))
             Config.general["open_dir"] = str(Path(pathname).parent)
 
+    def start_file_watcher(self):
+        """
+        Start the file watcher to detect changes in the /uploads folder.
+        """
+        event_handler = MyHandler(main_frame=self)
+        observer = Observer()
+        observer.schedule(event_handler, path='/Users/ninakilbride/PDFStitcherWebApp/uploads', recursive=False)
+        observer.start()
+
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            observer.stop()
+        observer.join()
 
 def main(language_warning: str):
     """
@@ -530,6 +532,9 @@ def main(language_warning: str):
     frm = PDFStitcherFrame(None, title="PDF Stitcher" + " " + utils.VERSION_STRING, size=app_size)
     frm.SetSize(frm.FromDIP(app_size))
     frm.reset_sash_position()
+    
+    # Auto-load the newest file on startup
+    frm.auto_load_newest_file()
 
     if language_warning:
         print(language_warning)
