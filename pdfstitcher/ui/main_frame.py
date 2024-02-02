@@ -420,11 +420,19 @@ class PDFStitcherFrame(wx.Frame):
         if files:
             newest_file = max(files, key=os.path.getctime)
             timestamp = time.strftime("%Y%m%d_%H%M%S")
+            original_filename = Path(newest_file).stem
+
+            if not original_filename:
+                original_filename = f"merged_{timestamp}"
+
             merged_path = Path("/Users/ninakilbride/PDFStitcherWebApp/merged")
-            self.out_doc_path = str(merged_path / f"merged_{timestamp}.pdf")
+            self.out_doc_path = str(merged_path / f"{original_filename}.pdf")
 
             # Load the newest PDF file
             wx.CallAfter(self.load_file, newest_file)
+
+            # Automatically run the merging process
+            wx.CallAfter(self.on_go_pressed, None)
 
     def load_file(self, pathname, password=""):
         """
